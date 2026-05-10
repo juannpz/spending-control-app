@@ -1,6 +1,6 @@
 services:
     client:
-        container_name: client
+        container_name: spending-app-client
         build:
             context: .
             args:
