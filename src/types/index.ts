@@ -24,7 +24,23 @@ export type ExpenseCategory =
     | "seguros"
     | "mascotas"
     | "viajes"
-    | "otro";
+    | "otro"
+    | "delivery"
+    | "peluqueria"
+    | "gastos_personales"
+    | "ocio"
+    | "suscripciones"
+    | "gimnasio"
+    | "hogar"
+    | "regalos"
+    | "vehiculo"
+    | "medicamentos"
+    | "cafeteria"
+    | "limpieza"
+    | "ferreteria"
+    | "libreria"
+    | "tarjeta"
+    | "juegos";
 
 export interface Expense {
     id: string;

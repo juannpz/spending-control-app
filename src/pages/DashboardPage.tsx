@@ -36,7 +36,24 @@ export const DashboardPage = () => {
     const [installmentExpense, setInstallmentExpense] = useState<Expense | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
 
-    // When there's no sheet yet, show the setup view
+    // When there's no sheet yet BUT still loading, show a loading state
+    if (!currentSheet && isLoading) {
+        return (
+            <Box className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+                <Box className="relative">
+                    <Box className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                </Box>
+                <Typography variant="h6" className="text-gray-500">
+                    Cargando tus gastos...
+                </Typography>
+                <Typography variant="body2" className="text-gray-400">
+                    Conectando con Google Sheets
+                </Typography>
+            </Box>
+        );
+    }
+
+    // When loading finished and there's no sheet, show the setup view
     if (!currentSheet) {
         return (
             <>
@@ -126,35 +143,46 @@ export const DashboardPage = () => {
     return (
         <>
             {/* Sheet header */}
-            <Paper className="p-4 mb-4!">
-                <Box className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <Box>
-                        <Typography variant="h5" className="font-semibold!">
-                            {currentSheet.monthLabel}
-                        </Typography>
-                        <Box className="flex gap-2 mt-1 items-center">
-                            <Chip label={`${currentSheet.expenses.length} gastos`} size="small" />
+            <Paper className="p-3 sm:p-4 mb-3 sm:mb-4!">
+                <Box className="flex flex-col gap-2">
+                    {/* Top row: month + totals */}
+                    <Box className="flex items-center justify-between gap-2">
+                        <Box className="flex items-center gap-2 min-w-0">
+                            <Typography
+                                variant="h6"
+                                className="font-semibold! text-base sm:text-xl truncate"
+                            >
+                                {currentSheet.monthLabel}
+                            </Typography>
                             <Chip
-                                label="Abrir en Sheets"
+                                label={currentSheet.expenses.length}
                                 size="small"
                                 color="primary"
                                 variant="outlined"
-                                onClick={handleOpenSheet}
-                                className="cursor-pointer"
                             />
                         </Box>
+                        <Chip
+                            label="Sheets"
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                            onClick={handleOpenSheet}
+                            className="cursor-pointer shrink-0"
+                        />
                     </Box>
 
-                    <Box className="flex gap-2 flex-wrap">
+                    {/* Action buttons */}
+                    <Box className="flex gap-1.5 flex-wrap">
                         <Button
                             variant="contained"
+                            size="small"
                             startIcon={<AddIcon />}
                             onClick={() => {
                                 setEditingExpense(null);
                                 setShowExpenseForm(true);
                             }}
                         >
-                            Nuevo Gasto
+                            Gasto
                         </Button>
                         <Button
                             variant="outlined"
@@ -162,14 +190,14 @@ export const DashboardPage = () => {
                             startIcon={<CalendarMonthIcon />}
                             onClick={() => setShowCreator(true)}
                         >
-                            Agregar Mes
+                            Nuevo mes (hoja)
                         </Button>
                         <Button
                             variant="outlined"
                             size="small"
                             onClick={() => setShowImporter(true)}
                         >
-                            Cambiar
+                            Cambiar mes (hoja)
                         </Button>
                     </Box>
                 </Box>

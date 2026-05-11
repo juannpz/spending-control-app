@@ -219,25 +219,56 @@ export const updateExpense = async (
     id: string,
     updates: Partial<Omit<Expense, "id" | "createdAt">>,
 ): Promise<void> => {
-    const expenses = await getExpenses(token, spreadsheetId, sheetName);
-    const idx = expenses.findIndex((e) => e.id === id);
-    if (idx === -1) throw new Error(`Expense ${id} not found`);
+    // Find the real sheet row using the ID column directly (not filtered array index)
+    const row = await findExpenseRow(token, spreadsheetId, sheetName, id);
+    if (row === -1) throw new Error(`Expense ${id} not found`);
+
+    // Fetch current data from that exact row to build the updated object
+    const gapi = await loadGapiClient();
+    gapi.setToken({ access_token: token });
+
+    const res = await gapi.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${sheetName}'!A${row}:L${row}`,
+    });
+    const rowData = (res.result.values as string[][])?.[0] ?? [];
+    const current = rowToExpense(rowData);
 
     const updated: Expense = {
-        ...expenses[idx],
+        ...current,
         ...updates,
         updatedAt: new Date().toISOString(),
     };
 
-    const gapi = await loadGapiClient();
-    gapi.setToken({ access_token: token });
-
     await gapi.sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `'${sheetName}'!A${idx + 2}:L${idx + 2}`,
+        range: `'${sheetName}'!A${row}:L${row}`,
         valueInputOption: "RAW",
         resource: { values: [expenseToRow(updated)] },
     });
+};
+
+export const findExpenseRow = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+    id: string,
+): Promise<number> => {
+    // Returns the 1-based sheet row number for the given expense ID
+    const gapi = await loadGapiClient();
+    gapi.setToken({ access_token: token });
+
+    try {
+        const res = await gapi.sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: `'${sheetName}'!A2:A`,
+        });
+        const rows = (res.result.values as string[][]) ?? [];
+        const rowIdx = rows.findIndex((row) => row[0] === id);
+        return rowIdx >= 0 ? rowIdx + 2 : -1; // +2 because header is row 1, array is 0-based
+    } catch {
+        return -1;
+    }
 };
 
 export const deleteExpense = async (
@@ -246,15 +277,15 @@ export const deleteExpense = async (
     sheetName: string,
     id: string,
 ): Promise<void> => {
-    const expenses = await getExpenses(token, spreadsheetId, sheetName);
-    const idx = expenses.findIndex((e) => e.id === id);
-    if (idx === -1) throw new Error(`Expense ${id} not found`);
+    const row = await findExpenseRow(token, spreadsheetId, sheetName, id);
+    if (row === -1) throw new Error(`Expense ${id} not found`);
 
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
+    // Clear the row contents (updateExpense now uses real row numbers, so gaps are safe)
     await gapi.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        range: `'${sheetName}'!A${idx + 2}:L${idx + 2}`,
+        range: `'${sheetName}'!A${row}:L${row}`,
     });
 };

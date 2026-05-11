@@ -38,9 +38,12 @@ export const AppLayout = () => {
                         className="flex items-center gap-2 cursor-pointer"
                         onClick={() => navigate("/")}
                     >
-                        <AccountBalanceWalletIcon />
-                        <Typography variant="h6" className="font-semibold! whitespace-nowrap">
-                            Control de Gastos
+                        <AccountBalanceWalletIcon className="text-2xl sm:text-3xl" />
+                        <Typography
+                            variant="h6"
+                            className="font-semibold! whitespace-nowrap text-lg sm:text-xl"
+                        >
+                            Gastos
                         </Typography>
                     </Box>
 
@@ -78,7 +81,7 @@ export const AppLayout = () => {
                 </Toolbar>
             </AppBar>
 
-            <Box component="main" className="max-w-4xl mx-auto p-3 sm:p-4">
+            <Box component="main" className="max-w-4xl mx-auto p-2 sm:p-4">
                 <Outlet />
             </Box>
         </Box>

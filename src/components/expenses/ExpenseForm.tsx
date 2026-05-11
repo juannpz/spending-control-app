@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
+    Autocomplete,
     Button,
     Dialog,
     DialogActions,
@@ -14,8 +15,8 @@ import {
     TextField,
     Typography,
 } from "@mui/material";
-import type { ExpenseFormData } from "@/types";
-import { CATEGORY_LABELS, CURRENCY_LABELS, PAYMENT_TYPE_LABELS } from "@/constants";
+import type { ExpenseCategory, ExpenseFormData } from "@/types";
+import { CATEGORY_ENTRIES, CURRENCY_LABELS, PAYMENT_TYPE_LABELS } from "@/constants";
 import { getTodayISO, hasErrors, validateExpenseForm } from "@/utils";
 import type { Expense } from "@/types";
 
@@ -157,24 +158,33 @@ export const ExpenseForm = ({
                         placeholder="Ej: Compra supermercado"
                     />
 
-                    {/* Category */}
+                    {/* Category — searchable Autocomplete */}
                     <FormControl fullWidth error={!!errors.category}>
-                        <InputLabel id="cat-label">Categoría</InputLabel>
-                        <Select
-                            labelId="cat-label"
-                            name="category"
-                            value={form.category}
-                            label="Categoría"
-                            onChange={handleChange}
-                        >
-                            {(Object.entries(CATEGORY_LABELS) as [string, string][]).map(
-                                ([key, label]) => (
-                                    <MenuItem key={key} value={key}>
-                                        {label}
-                                    </MenuItem>
-                                ),
+                        <Autocomplete
+                            options={CATEGORY_ENTRIES}
+                            value={CATEGORY_ENTRIES.find(([k]) => k === form.category) ?? undefined}
+                            onChange={(_e, newValue) => {
+                                setForm((prev) => ({
+                                    ...prev,
+                                    category: (newValue?.[0] ?? "") as ExpenseCategory,
+                                }));
+                                setErrors((prev) => ({ ...prev, category: undefined }));
+                            }}
+                            getOptionLabel={(option) => option[1]}
+                            isOptionEqualToValue={(option, value) => option[0] === value[0]}
+                            noOptionsText="Sin resultados"
+                            renderInput={(params) => (
+                                <TextField
+                                    {...params}
+                                    label="Categoría"
+                                    error={!!errors.category}
+                                />
                             )}
-                        </Select>
+                            disableClearable
+                            slotProps={{
+                                listbox: { style: { maxHeight: 220 } },
+                            }}
+                        />
                         {errors.category && <FormHelperText>{errors.category}</FormHelperText>}
                     </FormControl>
 
@@ -232,7 +242,7 @@ export const ExpenseForm = ({
                             helperText={errors.amount}
                             placeholder="0.00"
                             slotProps={{
-                                htmlInput: { min: 0, step: 0.01 },
+                                htmlInput: { min: 0, step: 0.01, inputMode: "decimal" },
                             }}
                         />
                     </div>
@@ -264,7 +274,7 @@ export const ExpenseForm = ({
                                             }`
                                             : "-")}
                                 slotProps={{
-                                    htmlInput: { min: 1, max: 48, step: 1 },
+                                    htmlInput: { min: 1, max: 48, step: 1, inputMode: "numeric" },
                                 }}
                             />
                         </div>

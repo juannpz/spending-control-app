@@ -65,6 +65,14 @@ interface GapiClient {
                                 gridProperties?: { frozenRowCount: number };
                             };
                         };
+                        deleteDimension?: {
+                            range: {
+                                sheetId: number;
+                                dimension: string;
+                                startIndex: number;
+                                endIndex: number;
+                            };
+                        };
                     }>;
                 };
             }): Promise<{ result: unknown }>;

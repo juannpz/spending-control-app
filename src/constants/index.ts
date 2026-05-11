@@ -4,20 +4,41 @@ export const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
     supermercado: "Supermercado",
     combustible: "Combustible",
     restaurante: "Restaurante",
+    delivery: "Delivery",
+    cafeteria: "Cafetería",
     servicios: "Servicios",
     alquiler: "Alquiler",
+    hogar: "Hogar",
     transporte: "Transporte",
+    vehiculo: "Vehículo",
     salud: "Salud",
+    medicamentos: "Medicamentos",
+    gimnasio: "Gimnasio",
     educacion: "Educación",
     entretenimiento: "Entretenimiento",
+    ocio: "Ocio",
+    juegos: "Juegos",
+    suscripciones: "Suscripciones",
     ropa: "Ropa",
     tecnologia: "Tecnología",
     impuestos: "Impuestos",
     seguros: "Seguros",
     mascotas: "Mascotas",
     viajes: "Viajes",
+    peluqueria: "Peluquería",
+    gastos_personales: "Gastos Personales",
+    regalos: "Regalos",
+    limpieza: "Limpieza",
+    ferreteria: "Ferretería",
+    libreria: "Librería",
+    tarjeta: "Pago de tarjeta",
     otro: "Otro",
 };
+
+/** Pre-sorted category entries for display in autocompletes (alphabetical by label) */
+export const CATEGORY_ENTRIES = (
+    Object.entries(CATEGORY_LABELS) as [ExpenseCategory, string][]
+).sort((a, b) => a[1].localeCompare(b[1], "es"));
 
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
     debito: "Débito",
