@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
     Button,
@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import { useSheets } from "@/contexts/SheetsContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { getSpreadsheetMeta } from "@/services/googleSheets";
+import { getSpreadsheetMeta, setToken } from "@/services/googleSheets";
 import { MONTH_NAMES } from "@/constants";
 
 interface Props {
@@ -42,14 +42,59 @@ const extractSpreadsheetId = (input: string): string => {
 
 export const SheetImporter = ({ open, onClose, prefillSpreadsheetId }: Props) => {
     const { loadSheet, isLoading: sheetLoading, currentSheet } = useSheets();
-    const { token } = useAuth();
+    const { token, refreshToken, logout } = useAuth();
     const [rawInput, setRawInput] = useState("");
     const [sheets, setSheets] = useState<SheetOption[]>([]);
     const [selectedSheet, setSelectedSheet] = useState("");
     const [isFinding, setIsFinding] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Stable refs so the withTokenRefresh callback inside this component
+    // always sees the latest token/refreshToken/logout without stale closures.
+    const tokenRef = useRef(token);
+    tokenRef.current = token;
+    const refreshTokenRef = useRef(refreshToken);
+    refreshTokenRef.current = refreshToken;
+    const logoutRef = useRef(logout);
+    logoutRef.current = logout;
+
     const spreadsheetId = useMemo(() => extractSpreadsheetId(rawInput), [rawInput]);
+
+    /**
+     * Same 401 detector used in SheetsContext.
+     */
+    const is401Error = (err: unknown): boolean => {
+        const e = err as Record<string, any> | null;
+        if (!e) return false;
+        if (e.status === 401) return true;
+        if (e.result?.error?.code === 401) return true;
+        if (
+            typeof e.message === "string" && e.message.includes("401") &&
+            e.message.includes("UNAUTHENTICATED")
+        ) return true;
+        return false;
+    };
+
+    /**
+     * Fetch spreadsheet metadata with automatic 401 → silent refresh → retry.
+     * If silent refresh also fails, forces logout.
+     */
+    const fetchMetaWithRefresh = useCallback(async (id: string) => {
+        const tok = tokenRef.current;
+        if (!tok) throw new Error("Not authenticated");
+        try {
+            return await getSpreadsheetMeta(tok, id);
+        } catch (err: unknown) {
+            if (!is401Error(err)) throw err;
+            const fresh = await refreshTokenRef.current();
+            if (!fresh) {
+                logoutRef.current();
+                throw new Error("Sesión expirada. Por favor iniciá sesión nuevamente.");
+            }
+            setToken(fresh);
+            return await getSpreadsheetMeta(fresh, id);
+        }
+    }, []);
 
     // Auto-fetch when opening with a pre-filled spreadsheet ID
     useEffect(() => {
@@ -57,7 +102,7 @@ export const SheetImporter = ({ open, onClose, prefillSpreadsheetId }: Props) =>
             setRawInput(prefillSpreadsheetId);
             setIsFinding(true);
             setError(null);
-            getSpreadsheetMeta(token, prefillSpreadsheetId)
+            fetchMetaWithRefresh(prefillSpreadsheetId)
                 .then((meta) => {
                     const parsed: SheetOption[] = meta.sheets
                         .filter((name) => /^\d{4}-\d{2}$/.test(name))
@@ -70,14 +115,14 @@ export const SheetImporter = ({ open, onClose, prefillSpreadsheetId }: Props) =>
                 .catch(() => setError("No se pudo acceder al spreadsheet"))
                 .finally(() => setIsFinding(false));
         }
-    }, [open, prefillSpreadsheetId, token]);
+    }, [open, prefillSpreadsheetId, token, fetchMetaWithRefresh]);
 
     const handleFind = async () => {
         if (!token || !spreadsheetId) return;
         setIsFinding(true);
         setError(null);
         try {
-            const meta = await getSpreadsheetMeta(token, spreadsheetId);
+            const meta = await fetchMetaWithRefresh(spreadsheetId);
 
             const parsed: SheetOption[] = meta.sheets
                 .filter((name) => /^\d{4}-\d{2}$/.test(name))

@@ -1,6 +1,5 @@
 import { useNavigate } from "react-router-dom";
 import { Alert, Box, Paper, Typography } from "@mui/material";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import { LoginButton } from "@/components/auth/LoginButton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState } from "react";
@@ -27,15 +26,24 @@ export const LoginPage = () => {
                 elevation={3}
                 className="w-full max-w-sm p-8 flex flex-col items-center gap-6 text-center"
             >
-                <Box className="bg-blue-600 text-white rounded-full p-4">
-                    <AccountBalanceWalletIcon className="text-5xl" />
+                <Box className="w-28 h-28 flex items-center justify-center">
+                    <img src="/logo8.png" alt="Kaiju Spending Control" className="w-full h-full" />
                 </Box>
 
                 <Box>
-                    <Typography variant="h4" className="font-bold! text-gray-800">
-                        Control de Gastos
+                    <Typography
+                        variant="h4"
+                        className="font-extrabold! text-gray-900 tracking-tight"
+                    >
+                        Kaiju
                     </Typography>
-                    <Typography variant="body1" className="text-gray-500 mt-1">
+                    <Typography
+                        variant="body1"
+                        className="text-gray-900 tracking-wide font-medium! uppercase! text-xs! mt-0.5"
+                    >
+                        Spending Control
+                    </Typography>
+                    <Typography variant="body2" className="text-gray-500 mt-3">
                         Seguí tus gastos mensuales sincronizado con Google Sheets
                     </Typography>
                 </Box>

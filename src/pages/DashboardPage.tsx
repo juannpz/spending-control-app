@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Paper, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
@@ -12,7 +12,7 @@ import { ExpenseForm } from "@/components/expenses/ExpenseForm";
 import { ExpenseTable } from "@/components/expenses/ExpenseTable";
 import { ConfirmDelete } from "@/components/expenses/ConfirmDelete";
 import InstallmentDetail from "@/components/expenses/InstallmentDetail";
-import { getSpreadsheetMeta } from "@/services/googleSheets";
+import { getSpreadsheetMeta, setToken } from "@/services/googleSheets";
 
 export const DashboardPage = () => {
     const {
@@ -25,7 +25,46 @@ export const DashboardPage = () => {
         removeExpense,
         markInstallmentPaid,
     } = useSheets();
-    const { token, user } = useAuth();
+    const { token, user, refreshToken, logout } = useAuth();
+
+    // Stable refs so callbacks always see latest auth values
+    const tokenRef = useRef(token);
+    tokenRef.current = token;
+    const refreshTokenRef = useRef(refreshToken);
+    refreshTokenRef.current = refreshToken;
+    const logoutRef = useRef(logout);
+    logoutRef.current = logout;
+
+    /** 401 detector for GAPI / fetch errors. */
+    const is401Error = (err: unknown): boolean => {
+        const e = err as Record<string, any> | null;
+        if (!e) return false;
+        if (e.status === 401) return true;
+        if (e.result?.error?.code === 401) return true;
+        if (
+            typeof e.message === "string" && e.message.includes("401") &&
+            e.message.includes("UNAUTHENTICATED")
+        ) return true;
+        return false;
+    };
+
+    /** Fetch spreadsheet metadata with automatic silent token refresh on 401. */
+    const fetchMetaWithRefresh = useCallback(async (id: string) => {
+        const tok = tokenRef.current;
+        if (!tok) throw new Error("Not authenticated");
+        try {
+            return await getSpreadsheetMeta(tok, id);
+        } catch (err: unknown) {
+            if (!is401Error(err)) throw err;
+            const fresh = await refreshTokenRef.current();
+            if (!fresh) {
+                logoutRef.current();
+                throw new Error("Sesión expirada. Por favor iniciá sesión nuevamente.");
+            }
+            setToken(fresh);
+            return await getSpreadsheetMeta(fresh, id);
+        }
+    }, []);
 
     // Dialogs
     const [showCreator, setShowCreator] = useState(false);
@@ -132,7 +171,7 @@ export const DashboardPage = () => {
 
     const handleOpenSheet = async () => {
         if (!currentSheet) return;
-        const meta = await getSpreadsheetMeta(token!, currentSheet.spreadsheetId);
+        const meta = await fetchMetaWithRefresh(currentSheet.spreadsheetId);
         const url = `https://docs.google.com/spreadsheets/d/${meta.spreadsheetId}`;
         globalThis.open(url, "_blank");
     };

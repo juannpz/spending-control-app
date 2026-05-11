@@ -14,7 +14,6 @@ import {
     Typography,
 } from "@mui/material";
 import LogoutIcon from "@mui/icons-material/Logout";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import { useAuth } from "@/contexts/AuthContext";
 
 export const AppLayout = () => {
@@ -38,12 +37,12 @@ export const AppLayout = () => {
                         className="flex items-center gap-2 cursor-pointer"
                         onClick={() => navigate("/")}
                     >
-                        <AccountBalanceWalletIcon className="text-2xl sm:text-3xl" />
+                        <img src="/logo7.png" alt="Kaiju" className="h-7 w-7 sm:h-8 sm:w-8" />
                         <Typography
                             variant="h6"
-                            className="font-semibold! whitespace-nowrap text-lg sm:text-xl"
+                            className="font-bold! whitespace-nowrap text-lg sm:text-xl tracking-tight"
                         >
-                            Gastos
+                            Kaiju
                         </Typography>
                     </Box>
 

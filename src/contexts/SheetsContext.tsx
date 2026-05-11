@@ -1,4 +1,12 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import {
+    createContext,
+    type ReactNode,
+    useCallback,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import type { CreateExpenseData, Expense, MonthSheet } from "@/types";
 import { useAuth } from "./AuthContext";
 import * as sheetsService from "@/services/googleSheets";
@@ -40,6 +48,21 @@ const sortExpenses = (list: Expense[]): Expense[] =>
         return a.id.localeCompare(b.id);
     });
 
+// ---- Token-refresh helpers ----
+
+/** Detect a 401 from either GAPI (result.error.code) or standard fetch (status). */
+const is401Error = (err: unknown): boolean => {
+    const e = err as Record<string, any> | null;
+    if (!e) return false;
+    if (e.status === 401) return true;
+    if (e.result?.error?.code === 401) return true;
+    if (
+        typeof e.message === "string" && e.message.includes("401") &&
+        e.message.includes("UNAUTHENTICATED")
+    ) return true;
+    return false;
+};
+
 interface SheetsContextType {
     currentSheet: MonthSheet | null;
     isLoading: boolean;
@@ -61,64 +84,84 @@ interface SheetsContextType {
 const SheetsContext = createContext<SheetsContextType | null>(null);
 
 export const SheetsProvider = ({ children }: { children: ReactNode }) => {
-    const { token, refreshToken } = useAuth();
+    const { token, refreshToken, logout } = useAuth();
     const [currentSheet, setCurrentSheet] = useState<MonthSheet | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [restored, setRestored] = useState(false);
 
+    // Refs so withTokenRefresh stays stable across renders
+    const tokenRef = useRef(token);
+    tokenRef.current = token;
+    const refreshTokenRef = useRef(refreshToken);
+    refreshTokenRef.current = refreshToken;
+    const logoutRef = useRef(logout);
+    logoutRef.current = logout;
+
+    /**
+     * Wraps a Google API operation with automatic 401 → silent token refresh → retry.
+     * If silent refresh also fails, forces logout so the user lands on /login
+     * instead of staying in a broken authenticated state.
+     */
+    const withTokenRefresh = useCallback(async <T,>(
+        operation: (tok: string) => Promise<T>,
+    ): Promise<T> => {
+        const tok = tokenRef.current;
+        if (!tok) throw new Error("Not authenticated");
+        try {
+            return await operation(tok);
+        } catch (err: unknown) {
+            if (!is401Error(err)) throw err;
+
+            const fresh = await refreshTokenRef.current();
+            if (!fresh) {
+                // Cannot refresh → force logout to clean UI state
+                logoutRef.current();
+                throw new Error("Sesión expirada. Por favor iniciá sesión nuevamente.");
+            }
+
+            sheetsService.setToken(fresh);
+            return await operation(fresh);
+        }
+    }, []);
+
+    // ── RESTORE PERSISTED SHEET ON MOUNT ──────────────────────────
+
     const doRestoreSheet = useCallback(async () => {
-        if (!token) return;
+        if (!tokenRef.current) return;
         const persisted = loadPersistedSheet();
         if (!persisted) return;
 
         setIsLoading(true);
         try {
-            // First try with the stored token — it's usually still valid (~1h lifetime).
-            let expenses: Expense[];
-            try {
-                expenses = await sheetsService.getExpenses(
-                    token,
+            await withTokenRefresh(async (tok) => {
+                const expenses = await sheetsService.getExpenses(
+                    tok,
                     persisted.spreadsheetId,
                     persisted.sheetName,
                 );
-            } catch (err: any) {
-                // If 401, attempt a token refresh and retry.
-                // GAPI errors have result.error.code; standard fetch errors have status.
-                const is401 = err?.status === 401 ||
-                    err?.result?.error?.code === 401 ||
-                    (err?.message?.includes("401") && err?.message?.includes("UNAUTHENTICATED"));
-                if (!is401) throw err;
 
-                const fresh = await refreshToken();
-                if (!fresh) throw err; // can't refresh → give up
-
-                sheetsService.setToken(fresh);
-                expenses = await sheetsService.getExpenses(
-                    fresh,
-                    persisted.spreadsheetId,
-                    persisted.sheetName,
-                );
-            }
-
-            setCurrentSheet({
-                id: persisted.spreadsheetId,
-                spreadsheetId: persisted.spreadsheetId,
-                sheetName: persisted.sheetName,
-                monthLabel: formatMonthLabel(persisted.year, persisted.month),
-                year: persisted.year,
-                month: persisted.month,
-                expenses: sortExpenses(expenses),
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                setCurrentSheet({
+                    id: persisted.spreadsheetId,
+                    spreadsheetId: persisted.spreadsheetId,
+                    sheetName: persisted.sheetName,
+                    monthLabel: formatMonthLabel(persisted.year, persisted.month),
+                    year: persisted.year,
+                    month: persisted.month,
+                    expenses: sortExpenses(expenses),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                });
             });
         } catch {
+            // withTokenRefresh already called logout() if the token was unrecoverable.
+            // For other errors (network, permissions, …), clear the stale sheet ref.
             clearPersistedSheet();
             setCurrentSheet(null);
         } finally {
             setIsLoading(false);
         }
-    }, [token, refreshToken]);
+    }, [withTokenRefresh]);
 
     useEffect(() => {
         if (restored || !token) return;
@@ -143,35 +186,40 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
 
     const createSheet = useCallback(
         async (year: number, month: number, existingSpreadsheetId?: string) => {
-            if (!token) throw new Error("Not authenticated");
             setIsLoading(true);
             setError(null);
             try {
-                const sheetName = formatMonthSheetName(year, month);
-                let spreadsheetId: string;
+                await withTokenRefresh(async (tok) => {
+                    const sheetName = formatMonthSheetName(year, month);
+                    let spreadsheetId: string;
 
-                if (existingSpreadsheetId) {
-                    await sheetsService.addSheetToSpreadsheet(
-                        token,
-                        existingSpreadsheetId,
+                    if (existingSpreadsheetId) {
+                        await sheetsService.addSheetToSpreadsheet(
+                            tok,
+                            existingSpreadsheetId,
+                            sheetName,
+                        );
+                        spreadsheetId = existingSpreadsheetId;
+                    } else {
+                        const title = `${formatMonthLabel(year, month)} - Control de Gastos`;
+                        spreadsheetId = await sheetsService.createSpreadsheet(
+                            tok,
+                            title,
+                            sheetName,
+                        );
+                    }
+
+                    setCurrentSheet({
+                        id: spreadsheetId,
+                        spreadsheetId,
                         sheetName,
-                    );
-                    spreadsheetId = existingSpreadsheetId;
-                } else {
-                    const title = `${formatMonthLabel(year, month)} - Control de Gastos`;
-                    spreadsheetId = await sheetsService.createSpreadsheet(token, title, sheetName);
-                }
-
-                setCurrentSheet({
-                    id: spreadsheetId,
-                    spreadsheetId,
-                    sheetName,
-                    monthLabel: formatMonthLabel(year, month),
-                    year,
-                    month,
-                    expenses: [],
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
+                        monthLabel: formatMonthLabel(year, month),
+                        year,
+                        month,
+                        expenses: [],
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    });
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al crear la hoja";
@@ -181,26 +229,27 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 setIsLoading(false);
             }
         },
-        [token],
+        [withTokenRefresh],
     );
 
     const loadSheet = useCallback(
         async (spreadsheetId: string, sheetName: string, year: number, month: number) => {
-            if (!token) throw new Error("Not authenticated");
             setIsLoading(true);
             setError(null);
             try {
-                const expenses = await sheetsService.getExpenses(token, spreadsheetId, sheetName);
-                setCurrentSheet({
-                    id: spreadsheetId,
-                    spreadsheetId,
-                    sheetName,
-                    monthLabel: formatMonthLabel(year, month),
-                    year,
-                    month,
-                    expenses: sortExpenses(expenses),
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
+                await withTokenRefresh(async (tok) => {
+                    const expenses = await sheetsService.getExpenses(tok, spreadsheetId, sheetName);
+                    setCurrentSheet({
+                        id: spreadsheetId,
+                        spreadsheetId,
+                        sheetName,
+                        monthLabel: formatMonthLabel(year, month),
+                        year,
+                        month,
+                        expenses: sortExpenses(expenses),
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    });
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al cargar la hoja";
@@ -210,58 +259,64 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 setIsLoading(false);
             }
         },
-        [token],
+        [withTokenRefresh],
     );
 
     // ── EXPENSE CRUD ───────────────────────────────────────────────
 
     const addExpense = useCallback(
         async (data: CreateExpenseData) => {
-            if (!token || !currentSheet) throw new Error("No active sheet");
+            if (!currentSheet) throw new Error("No active sheet");
             setError(null);
             try {
-                const expense = await sheetsService.addExpense(
-                    token,
-                    currentSheet.spreadsheetId,
-                    currentSheet.sheetName,
-                    data,
-                );
+                return await withTokenRefresh(async (tok) => {
+                    const expense = await sheetsService.addExpense(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        data,
+                    );
 
-                setCurrentSheet((prev) =>
-                    prev ? { ...prev, expenses: sortExpenses([...prev.expenses, expense]) } : prev
-                );
-                return expense;
+                    setCurrentSheet((prev) =>
+                        prev
+                            ? { ...prev, expenses: sortExpenses([...prev.expenses, expense]) }
+                            : prev
+                    );
+                    return expense;
+                });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al agregar gasto";
                 setError(msg);
                 throw err;
             }
         },
-        [token, currentSheet],
+        [currentSheet, withTokenRefresh],
     );
 
     const editExpense = useCallback(
         async (id: string, updates: Partial<CreateExpenseData>) => {
-            if (!token || !currentSheet) throw new Error("No active sheet");
+            if (!currentSheet) throw new Error("No active sheet");
             setError(null);
             try {
-                await sheetsService.updateExpense(
-                    token,
-                    currentSheet.spreadsheetId,
-                    currentSheet.sheetName,
-                    id,
-                    updates,
-                );
-                setCurrentSheet((prev) => {
-                    if (!prev) return prev;
-                    return {
-                        ...prev,
-                        expenses: prev.expenses.map((e) =>
-                            e.id === id
-                                ? { ...e, ...updates, updatedAt: new Date().toISOString() }
-                                : e
-                        ),
-                    };
+                await withTokenRefresh(async (tok) => {
+                    await sheetsService.updateExpense(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        id,
+                        updates,
+                    );
+                    setCurrentSheet((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            expenses: prev.expenses.map((e) =>
+                                e.id === id
+                                    ? { ...e, ...updates, updatedAt: new Date().toISOString() }
+                                    : e
+                            ),
+                        };
+                    });
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al editar gasto";
@@ -269,23 +324,25 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 throw err;
             }
         },
-        [token, currentSheet],
+        [currentSheet, withTokenRefresh],
     );
 
     const removeExpense = useCallback(
         async (id: string) => {
-            if (!token || !currentSheet) throw new Error("No active sheet");
+            if (!currentSheet) throw new Error("No active sheet");
             setError(null);
             try {
-                await sheetsService.deleteExpense(
-                    token,
-                    currentSheet.spreadsheetId,
-                    currentSheet.sheetName,
-                    id,
-                );
-                setCurrentSheet((prev) => {
-                    if (!prev) return prev;
-                    return { ...prev, expenses: prev.expenses.filter((e) => e.id !== id) };
+                await withTokenRefresh(async (tok) => {
+                    await sheetsService.deleteExpense(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        id,
+                    );
+                    setCurrentSheet((prev) => {
+                        if (!prev) return prev;
+                        return { ...prev, expenses: prev.expenses.filter((e) => e.id !== id) };
+                    });
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al eliminar gasto";
@@ -293,35 +350,37 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 throw err;
             }
         },
-        [token, currentSheet],
+        [currentSheet, withTokenRefresh],
     );
 
     const markInstallmentPaid = useCallback(
         async (id: string, newPaidCount: number) => {
-            if (!token || !currentSheet) throw new Error("No active sheet");
+            if (!currentSheet) throw new Error("No active sheet");
             setError(null);
             try {
-                await sheetsService.updateExpense(
-                    token,
-                    currentSheet.spreadsheetId,
-                    currentSheet.sheetName,
-                    id,
-                    { paidInstallments: newPaidCount },
-                );
-                setCurrentSheet((prev) => {
-                    if (!prev) return prev;
-                    return {
-                        ...prev,
-                        expenses: prev.expenses.map((e) =>
-                            e.id === id
-                                ? {
-                                    ...e,
-                                    paidInstallments: newPaidCount,
-                                    updatedAt: new Date().toISOString(),
-                                }
-                                : e
-                        ),
-                    };
+                await withTokenRefresh(async (tok) => {
+                    await sheetsService.updateExpense(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        id,
+                        { paidInstallments: newPaidCount },
+                    );
+                    setCurrentSheet((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            expenses: prev.expenses.map((e) =>
+                                e.id === id
+                                    ? {
+                                        ...e,
+                                        paidInstallments: newPaidCount,
+                                        updatedAt: new Date().toISOString(),
+                                    }
+                                    : e
+                            ),
+                        };
+                    });
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al actualizar cuotas";
@@ -329,7 +388,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 throw err;
             }
         },
-        [token, currentSheet],
+        [currentSheet, withTokenRefresh],
     );
 
     return (
