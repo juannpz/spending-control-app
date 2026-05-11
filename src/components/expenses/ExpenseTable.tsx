@@ -46,7 +46,8 @@ interface Props {
 
 type PersonBreakdown = Record<string, { name: string; ars: number; usd: number; count: number }>;
 
-/** 3-dot actions menu — shared between mobile cards and desktop rows */
+/** 3-dot actions menu — shared between mobile cards and desktop rows.
+ *  Keyed by expense.id so React never reuses Menu/Popover DOM across different rows. */
 const ActionsMenu = ({
     expense,
     onEdit,
@@ -140,6 +141,7 @@ const ExpenseCard = ({
             {/* 3-dot menu — top-right corner, always visible */}
             <Box className="absolute top-1 right-1 z-10">
                 <ActionsMenu
+                    key={expense.id}
                     expense={expense}
                     onEdit={onEdit}
                     onDelete={onDelete}
@@ -597,6 +599,7 @@ export const ExpenseTable = ({
                                         {/* Sticky actions column */}
                                         <TableCell align="center" sx={stickyActionsSx}>
                                             <ActionsMenu
+                                                key={expense.id}
                                                 expense={expense}
                                                 onEdit={onEdit}
                                                 onDelete={onDelete}

@@ -33,6 +33,18 @@ const clearPersistedSheet = (): void => {
     localStorage.removeItem(STORAGE_KEY);
 };
 
+/**
+ * Stable sort: newest expenses first (by date descending, then by ID for tiebreaking).
+ * This guarantees that pagination never shows "duplicated" or shifting items
+ * across page changes, regardless of what order the Sheets API returns.
+ */
+const sortExpenses = (list: Expense[]): Expense[] =>
+    [...list].sort((a, b) => {
+        const dateCmp = (b.date || "").localeCompare(a.date || "");
+        if (dateCmp !== 0) return dateCmp;
+        return a.id.localeCompare(b.id);
+    });
+
 interface SheetsContextType {
     currentSheet: MonthSheet | null;
     isLoading: boolean;
@@ -79,7 +91,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                     monthLabel: formatMonthLabel(persisted.year, persisted.month),
                     year: persisted.year,
                     month: persisted.month,
-                    expenses,
+                    expenses: sortExpenses(expenses),
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
@@ -167,7 +179,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                     monthLabel: formatMonthLabel(year, month),
                     year,
                     month,
-                    expenses,
+                    expenses: sortExpenses(expenses),
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 };
@@ -196,7 +208,12 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                     data,
                 );
                 setCurrentSheet((prev) =>
-                    prev ? { ...prev, expenses: [...prev.expenses, expense] } : prev
+                    prev
+                        ? {
+                            ...prev,
+                            expenses: sortExpenses([...prev.expenses, expense]),
+                        }
+                        : prev
                 );
                 return expense;
             } catch (err) {
@@ -222,14 +239,10 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 );
                 setCurrentSheet((prev) => {
                     if (!prev) return prev;
-                    return {
-                        ...prev,
-                        expenses: prev.expenses.map((e) =>
-                            e.id === id
-                                ? { ...e, ...updates, updatedAt: new Date().toISOString() }
-                                : e
-                        ),
-                    };
+                    const updated = prev.expenses.map((e) =>
+                        e.id === id ? { ...e, ...updates, updatedAt: new Date().toISOString() } : e
+                    );
+                    return { ...prev, expenses: sortExpenses(updated) };
                 });
             } catch (err) {
                 const msg = err instanceof Error ? err.message : "Error al editar gasto";
