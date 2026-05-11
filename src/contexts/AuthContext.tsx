@@ -5,6 +5,8 @@ import * as googleAuth from "@/services/googleAuth";
 interface AuthContextType extends AuthState {
     login: () => Promise<void>;
     logout: () => void;
+    /** Attempt silent token refresh. Returns the new token on success, null otherwise. */
+    refreshToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -17,7 +19,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         token: null,
     });
 
-    // Try to restore session on mount
+    // Try to restore session on mount — instant, no network call.
+    // Google access tokens live ~1h, so they are usually still valid on reload.
+    // Token refresh is handled lazily in SheetsContext when a 401 is detected.
     useEffect(() => {
         const persisted = googleAuth.loadPersistedAuth();
         if (persisted) {
@@ -60,8 +64,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
     }, []);
 
+    const refreshToken = useCallback(async (): Promise<string | null> => {
+        const freshToken = await googleAuth.silentRefreshToken();
+        if (!freshToken) return null;
+
+        // Re-fetch user info in case it changed, but keep existing as fallback
+        let user: User;
+        try {
+            user = await googleAuth.fetchUserInfo(freshToken);
+        } catch {
+            // If userinfo fails but token is fresh, keep the stored user
+            const persisted = googleAuth.loadPersistedAuth();
+            if (!persisted) return null;
+            user = persisted.user;
+        }
+
+        googleAuth.persistAuth(freshToken, user);
+        setState((prev) => ({
+            ...prev,
+            token: freshToken,
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+        }));
+        return freshToken;
+    }, []);
+
     return (
-        <AuthContext.Provider value={{ ...state, login, logout }}>
+        <AuthContext.Provider value={{ ...state, login, logout, refreshToken }}>
             {children}
         </AuthContext.Provider>
     );

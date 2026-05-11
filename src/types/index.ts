@@ -50,7 +50,7 @@ export interface Expense {
     currency: Currency;
     amount: number;
     date: string; // ISO date string (YYYY-MM-DD)
-    // Installment fields (only used when paymentType === 'credito')
+    // Installment tracking (only relevant when paymentType === 'credito')
     installments: number; // total number of installments (1 = single payment, >1 = multiple)
     paidInstallments: number; // how many have been paid so far
     createdBy: string; // email or name of who created the expense
@@ -99,3 +99,6 @@ export interface ExpenseFormData {
     date: string;
     installments: string;
 }
+
+/** Data needed to create a new expense (no generated fields) */
+export type CreateExpenseData = Omit<Expense, "id" | "createdAt" | "updatedAt">;

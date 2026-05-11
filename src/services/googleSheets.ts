@@ -184,8 +184,9 @@ export const getExpenses = async (
         return rows
             .filter((row) => row.some((cell) => cell?.trim()))
             .map(rowToExpense);
-    } catch {
-        return [];
+    } catch (err) {
+        // Propagate auth errors so callers can handle token refresh
+        throw err;
     }
 };
 
@@ -287,5 +288,53 @@ export const deleteExpense = async (
     await gapi.sheets.spreadsheets.values.clear({
         spreadsheetId,
         range: `'${sheetName}'!A${row}:L${row}`,
+    });
+};
+
+// ---- CROSS-SHEET INSTALLMENT HELPERS ----
+
+/** List all sheet tab names in a spreadsheet, sorted alphabetically. */
+export const getSheetNames = async (
+    token: string,
+    spreadsheetId: string,
+): Promise<string[]> => {
+    const gapi = await loadGapiClient();
+    gapi.setToken({ access_token: token });
+
+    const res = await gapi.sheets.spreadsheets.get({ spreadsheetId });
+
+    return (res.result.sheets ?? [])
+        .map((s: { properties?: { title?: string } }) => s.properties?.title ?? "")
+        .filter(Boolean);
+};
+
+/** Check whether a sheet tab exists in a spreadsheet. */
+export const sheetExists = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+): Promise<boolean> => {
+    const names = await getSheetNames(token, spreadsheetId);
+    return names.includes(sheetName);
+};
+
+/** Append multiple expense rows to a sheet in one API call. */
+export const batchAddExpenses = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+    expenses: Expense[],
+): Promise<void> => {
+    if (expenses.length === 0) return;
+
+    const gapi = await loadGapiClient();
+    gapi.setToken({ access_token: token });
+
+    await gapi.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${sheetName}'!A:L`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        resource: { values: expenses.map(expenseToRow) },
     });
 };

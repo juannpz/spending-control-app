@@ -10,14 +10,11 @@ import {
     DialogTitle,
     FormControl,
     IconButton,
-    InputLabel,
     ListItemIcon,
     ListItemText,
     Menu,
     MenuItem,
     Paper,
-    Select,
-    type SelectChangeEvent,
     Table,
     TableBody,
     TableCell,
@@ -46,8 +43,7 @@ interface Props {
 
 type PersonBreakdown = Record<string, { name: string; ars: number; usd: number; count: number }>;
 
-/** 3-dot actions menu — shared between mobile cards and desktop rows.
- *  Keyed by expense.id so React never reuses Menu/Popover DOM across different rows. */
+/** 3-dot actions menu */
 const ActionsMenu = ({
     expense,
     onEdit,
@@ -137,8 +133,12 @@ const ExpenseCard = ({
     const remaining = isCredit ? expense.installments - expense.paidInstallments : 0;
 
     return (
-        <Paper variant="outlined" className="p-3 flex flex-col gap-2 relative">
-            {/* 3-dot menu — top-right corner, always visible */}
+        <Paper
+            variant="outlined"
+            className={`p-3 flex flex-col gap-2 relative ${
+                expense.paymentType === "credito" ? "opacity-60 bg-gray-50" : ""
+            }`}
+        >
             <Box className="absolute top-1 right-1 z-10">
                 <ActionsMenu
                     key={expense.id}
@@ -149,20 +149,33 @@ const ExpenseCard = ({
                 />
             </Box>
 
-            {/* Top row: date + amount (leave room for the 3-dot button) */}
             <Box className="flex justify-between items-start pr-9">
                 <Typography variant="caption" color="text.secondary">
                     {formatDate(expense.date)}
                 </Typography>
-                <Typography variant="body1" className="font-bold!">
+                <Typography
+                    variant="body1"
+                    className={`font-bold! ${
+                        expense.paymentType === "credito" ? "text-gray-400 line-through" : ""
+                    }`}
+                >
                     {formatCurrency(expense.amount, expense.currency)}
                 </Typography>
             </Box>
 
-            {/* Description */}
             <Box className="flex items-start gap-1 pr-9">
                 <Typography variant="body2" className="font-medium! flex-1">
                     {expense.description}
+                    {expense.paymentType === "credito" && (
+                        <Chip
+                            label="No contado"
+                            size="small"
+                            color="default"
+                            variant="filled"
+                            className="ml-1.5"
+                            sx={{ height: 18, fontSize: 10 }}
+                        />
+                    )}
                 </Typography>
                 {expense.description.length > 30 && (
                     <IconButton
@@ -175,7 +188,6 @@ const ExpenseCard = ({
                 )}
             </Box>
 
-            {/* Category + Payment type + Person */}
             <Box className="flex flex-wrap gap-1.5 items-center">
                 <Chip
                     label={CATEGORY_LABELS[expense.category] ?? expense.category}
@@ -207,7 +219,6 @@ const ExpenseCard = ({
     );
 };
 
-/** Column widths for the desktop table (used in table-layout: fixed) */
 const COL_WIDTHS = {
     actions: 48,
     amount: 110,
@@ -215,7 +226,6 @@ const COL_WIDTHS = {
     createdBy: 100,
     date: 95,
     paymentType: 155,
-    /* description gets the remaining space */
 } as const;
 
 export const ExpenseTable = ({
@@ -229,6 +239,7 @@ export const ExpenseTable = ({
     const [filterText, setFilterText] = useState("");
     const [filterCategory, setFilterCategory] = useState<string>("all");
     const [showByPerson, setShowByPerson] = useState(false);
+    const [showByPersonCredit, setShowByPersonCredit] = useState(false);
     const [descModal, setDescModal] = useState<{
         open: boolean;
         text: string;
@@ -243,8 +254,10 @@ export const ExpenseTable = ({
         });
     }, [expenses, filterText, filterCategory]);
 
+    // Crédito expenses don't count toward the total.
     const totals = useMemo(() => {
-        return filtered.reduce(
+        const paid = filtered.filter((e) => e.paymentType !== "credito");
+        return paid.reduce(
             (acc, e) => {
                 acc[e.currency] += e.amount;
                 return acc;
@@ -253,9 +266,41 @@ export const ExpenseTable = ({
         );
     }, [filtered]);
 
+    const notCounted = filtered.filter((e) => e.paymentType === "credito");
+    const hasNotCounted = notCounted.length > 0;
+
     const byPerson = useMemo((): PersonBreakdown => {
         const map: PersonBreakdown = {};
         for (const e of filtered) {
+            if (e.paymentType === "credito") continue;
+            const key = e.createdBy || "Desconocido";
+            if (!map[key]) map[key] = { name: key, ars: 0, usd: 0, count: 0 };
+            map[key][e.currency === "ARS" ? "ars" : "usd"] += e.amount;
+            map[key].count += 1;
+        }
+        return map;
+    }, [filtered]);
+
+    // ── Credit-card specific totals (always separate from main totals) ──
+    const creditTotals = useMemo(() => {
+        const credit = filtered.filter((e) => e.paymentType === "credito");
+        return credit.reduce(
+            (acc, e) => {
+                acc[e.currency] += e.amount;
+                return acc;
+            },
+            { ARS: 0, USD: 0 } as Record<Currency, number>,
+        );
+    }, [filtered]);
+
+    const creditCount = filtered.filter((e) => e.paymentType === "credito").length;
+    const hasCredit = creditCount > 0;
+
+    // Per-person credit breakdown
+    const byPersonCredit = useMemo((): PersonBreakdown => {
+        const map: PersonBreakdown = {};
+        for (const e of filtered) {
+            if (e.paymentType !== "credito") continue;
             const key = e.createdBy || "Desconocido";
             if (!map[key]) map[key] = { name: key, ars: 0, usd: 0, count: 0 };
             map[key][e.currency === "ARS" ? "ars" : "usd"] += e.amount;
@@ -265,6 +310,10 @@ export const ExpenseTable = ({
     }, [filtered]);
 
     const persons = Object.values(byPerson).sort(
+        (a, b) => b.ars + b.usd - (a.ars + a.usd),
+    );
+
+    const personsCredit = Object.values(byPersonCredit).sort(
         (a, b) => b.ars + b.usd - (a.ars + a.usd),
     );
 
@@ -292,7 +341,6 @@ export const ExpenseTable = ({
         );
     }
 
-    // ---- Sticky-cell shared styles ----
     const stickyActionsSx = {
         position: "sticky",
         right: 0,
@@ -351,10 +399,42 @@ export const ExpenseTable = ({
                         size="small"
                     />
                     <Chip
-                        label={`${filtered.length} gasto${filtered.length !== 1 ? "s" : ""}`}
+                        label={`${
+                            filtered.filter((e) => e.paymentType !== "credito").length
+                        } contado${
+                            filtered.filter((e) => e.paymentType !== "credito").length !== 1
+                                ? "s"
+                                : ""
+                        }`}
                         variant="outlined"
                         size="small"
                     />
+                    {hasNotCounted && (
+                        <Chip
+                            label={`${notCounted.length} no contado${
+                                notCounted.length !== 1 ? "s" : ""
+                            }`}
+                            color="default"
+                            variant="filled"
+                            size="small"
+                        />
+                    )}
+                    {hasCredit && creditTotals.ARS > 0 && (
+                        <Chip
+                            label={`ARS Crédito: ${formatCurrency(creditTotals.ARS, "ARS")}`}
+                            color="warning"
+                            variant="outlined"
+                            size="small"
+                        />
+                    )}
+                    {hasCredit && creditTotals.USD > 0 && (
+                        <Chip
+                            label={`USD Crédito: ${formatCurrency(creditTotals.USD, "USD")}`}
+                            color="warning"
+                            variant="outlined"
+                            size="small"
+                        />
+                    )}
                 </Box>
                 {persons.length > 0 && (
                     <Box className="mt-2">
@@ -422,6 +502,75 @@ export const ExpenseTable = ({
                         </Collapse>
                     </Box>
                 )}
+                {personsCredit.length > 0 && (
+                    <Box className="mt-2">
+                        <Box
+                            className="flex items-center gap-1 cursor-pointer text-orange-700"
+                            onClick={() => setShowByPersonCredit(!showByPersonCredit)}
+                            component="button"
+                            sx={{ border: "none", bgcolor: "transparent", p: 0 }}
+                        >
+                            <Typography variant="caption" className="font-semibold!">
+                                {showByPersonCredit
+                                    ? "Ocultar crédito por persona ▾"
+                                    : "Ver crédito por persona ▸"}
+                            </Typography>
+                        </Box>
+                        <Collapse in={showByPersonCredit}>
+                            <Box className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {personsCredit.map((p) => (
+                                    <Paper
+                                        key={p.name}
+                                        variant="outlined"
+                                        className="p-2 flex items-center gap-3 border-orange-200"
+                                    >
+                                        <Avatar
+                                            sx={{
+                                                width: 32,
+                                                height: 32,
+                                                fontSize: 14,
+                                                bgcolor: "warning.main",
+                                            }}
+                                        >
+                                            {p.name.charAt(0).toUpperCase()}
+                                        </Avatar>
+                                        <Box className="flex-1 min-w-0">
+                                            <Typography
+                                                variant="body2"
+                                                className="font-semibold! truncate"
+                                            >
+                                                {p.name}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {p.count} gasto{p.count !== 1 ? "s" : ""} crédito
+                                            </Typography>
+                                        </Box>
+                                        <Box className="text-right shrink-0">
+                                            {p.ars > 0 && (
+                                                <Typography
+                                                    variant="body2"
+                                                    className="font-semibold! whitespace-nowrap"
+                                                    color="warning.main"
+                                                >
+                                                    {formatCurrency(p.ars, "ARS")}
+                                                </Typography>
+                                            )}
+                                            {p.usd > 0 && (
+                                                <Typography
+                                                    variant="body2"
+                                                    className="font-semibold! whitespace-nowrap"
+                                                    color="warning.main"
+                                                >
+                                                    {formatCurrency(p.usd, "USD")}
+                                                </Typography>
+                                            )}
+                                        </Box>
+                                    </Paper>
+                                ))}
+                            </Box>
+                        </Collapse>
+                    </Box>
+                )}
             </Box>
 
             {/* ---- MOBILE: Cards ---- */}
@@ -446,14 +595,10 @@ export const ExpenseTable = ({
             {/* ---- DESKTOP: Table ---- */}
             <Box className="hidden sm:block">
                 <TableContainer component={Paper} variant="outlined" className="rounded-lg">
-                    <Table
-                        size="small"
-                        sx={{ tableLayout: "fixed", minWidth: 500 }}
-                    >
-                        {/* Column group for explicit widths */}
+                    <Table size="small" sx={{ tableLayout: "fixed", minWidth: 500 }}>
                         <colgroup>
                             <col style={{ width: COL_WIDTHS.date }} />
-                            <col /* description — flexible */ />
+                            <col />
                             <col style={{ width: COL_WIDTHS.category }} />
                             <col style={{ width: COL_WIDTHS.paymentType }} />
                             <col
@@ -503,7 +648,13 @@ export const ExpenseTable = ({
                                 const isLong = expense.description.length > 30;
 
                                 return (
-                                    <TableRow key={expense.id} hover>
+                                    <TableRow
+                                        key={expense.id}
+                                        hover
+                                        sx={expense.paymentType === "credito"
+                                            ? { opacity: 0.55, bgcolor: "#fafafa" }
+                                            : undefined}
+                                    >
                                         <TableCell className="whitespace-nowrap text-xs">
                                             {formatDate(expense.date)}
                                         </TableCell>
@@ -513,10 +664,23 @@ export const ExpenseTable = ({
                                                 <Typography
                                                     variant="body2"
                                                     noWrap
-                                                    className="flex-1 min-w-0"
+                                                    className={`flex-1 min-w-0 ${
+                                                        expense.paymentType === "credito"
+                                                            ? "text-gray-400"
+                                                            : ""
+                                                    }`}
                                                 >
                                                     {expense.description}
                                                 </Typography>
+                                                {/* {expense.paymentType === "credito" && (
+                                                    <Chip
+                                                        label="NC"
+                                                        size="small"
+                                                        color="default"
+                                                        variant="filled"
+                                                        sx={{ height: 18, fontSize: 10 }}
+                                                    />
+                                                )} */}
                                                 {isLong && (
                                                     <IconButton
                                                         size="small"
@@ -540,9 +704,7 @@ export const ExpenseTable = ({
                                             {CATEGORY_LABELS[expense.category] ?? expense.category}
                                         </TableCell>
 
-                                        <TableCell
-                                            sx={{ overflow: "hidden" }}
-                                        >
+                                        <TableCell sx={{ overflow: "hidden" }}>
                                             <Box className="flex items-center gap-1 flex-nowrap">
                                                 <Typography variant="caption" noWrap>
                                                     {PAYMENT_TYPE_LABELS[expense.paymentType] ??
@@ -591,12 +753,18 @@ export const ExpenseTable = ({
                                         </TableCell>
 
                                         <TableCell align="right" className="whitespace-nowrap">
-                                            <Typography variant="body2" className="font-semibold!">
+                                            <Typography
+                                                variant="body2"
+                                                className={`font-semibold! ${
+                                                    expense.paymentType === "credito"
+                                                        ? "text-gray-400 line-through"
+                                                        : ""
+                                                }`}
+                                            >
                                                 {formatCurrency(expense.amount, expense.currency)}
                                             </Typography>
                                         </TableCell>
 
-                                        {/* Sticky actions column */}
                                         <TableCell align="center" sx={stickyActionsSx}>
                                             <ActionsMenu
                                                 key={expense.id}
@@ -637,7 +805,6 @@ export const ExpenseTable = ({
                 labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
             />
 
-            {/* Description modal */}
             <Dialog
                 open={descModal.open}
                 onClose={() => setDescModal({ open: false, text: "" })}

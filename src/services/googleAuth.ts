@@ -108,6 +108,22 @@ export const loginWithGoogle = async (): Promise<{
     return { user, token: tokenResponse.access_token };
 };
 
+/**
+ * Attempt to silently obtain a fresh Google access token.
+ * Uses prompt="" so no popup is shown — succeeds only if
+ * the user still has a valid Google session.
+ * Returns the new access_token string, or null on failure.
+ */
+export const silentRefreshToken = async (): Promise<string | null> => {
+    try {
+        await loadGIS();
+        const tokenResponse = await getGoogleToken();
+        return tokenResponse.access_token;
+    } catch {
+        return null;
+    }
+};
+
 export const logoutFromGoogle = (): void => {
     if (window.google?.accounts.id) {
         window.google.accounts.id.disableAutoSelect();

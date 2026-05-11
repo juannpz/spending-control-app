@@ -5,7 +5,7 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FileOpenIcon from "@mui/icons-material/FileOpen";
 import { useSheets } from "@/contexts/SheetsContext";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Expense } from "@/types";
+import type { CreateExpenseData, Expense } from "@/types";
 import { SheetCreator } from "@/components/sheets/SheetCreator";
 import { SheetImporter } from "@/components/sheets/SheetImporter";
 import { ExpenseForm } from "@/components/expenses/ExpenseForm";
@@ -93,9 +93,7 @@ export const DashboardPage = () => {
     }
 
     // Active sheet view
-    const handleAddExpense = async (
-        data: Omit<Expense, "id" | "createdAt" | "updatedAt">,
-    ) => {
+    const handleAddExpense = async (data: CreateExpenseData) => {
         setActionError(null);
         try {
             await addExpense({ ...data, createdBy: user?.name || user?.email || "Desconocido" });
@@ -105,15 +103,14 @@ export const DashboardPage = () => {
         }
     };
 
-    const handleEditExpense = async (
-        data: Omit<Expense, "id" | "createdAt" | "updatedAt">,
-    ) => {
+    const handleEditExpense = async (data: CreateExpenseData) => {
         if (!editingExpense) return;
         setActionError(null);
         try {
+            // Preserve createdBy from original — the form always sends ""
             await editExpense(editingExpense.id, {
                 ...data,
-                createdBy: user?.name || user?.email || editingExpense.createdBy,
+                createdBy: data.createdBy || editingExpense.createdBy,
             });
             setEditingExpense(null);
         } catch {

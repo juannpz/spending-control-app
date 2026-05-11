@@ -108,3 +108,44 @@ export const getCurrentMonthYear = (): { year: number; month: number } => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
 };
+
+/** Given {year, month}, return the next month (wrapping from 12 to 1 and incrementing year). */
+export const nextMonth = (
+    y: number,
+    m: number,
+): { year: number; month: number } => {
+    return m === 12 ? { year: y + 1, month: 1 } : { year: y, month: m + 1 };
+};
+
+/** Given a base date (ISO YYYY-MM-DD), return the date for installment N
+ *  by adding N months to the base date and setting day to the original day
+ *  (or last day of that month if the original day doesn't exist there). */
+export const installmentDate = (
+    baseDateISO: string,
+    installmentN: number,
+): string => {
+    if (!baseDateISO) return "";
+
+    const [y, m, d] = baseDateISO.split("-").map(Number);
+    if (!y || !m || !d) return "";
+
+    // Compute target month: base month + N - 1 (first installment in the next month)
+    const totalMonths = m + installmentN;
+    let targetYear = y + Math.floor((totalMonths - 1) / 12);
+    let targetMonth = totalMonths % 12;
+    if (targetMonth === 0) targetMonth = 12;
+
+    // Clamp day to the last day of the target month
+    const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+    const targetDay = Math.min(d, lastDay);
+
+    return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${
+        String(targetDay).padStart(2, "0")
+    }`;
+};
+
+/** Given {year, month} determine the next sheet name in YYYY-MM format. */
+export const nextSheetName = (year: number, month: number): string => {
+    const nm = nextMonth(year, month);
+    return formatMonthSheetName(nm.year, nm.month);
+};

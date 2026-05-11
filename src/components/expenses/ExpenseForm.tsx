@@ -15,16 +15,15 @@ import {
     TextField,
     Typography,
 } from "@mui/material";
-import type { ExpenseCategory, ExpenseFormData } from "@/types";
+import type { CreateExpenseData, Expense, ExpenseCategory, ExpenseFormData } from "@/types";
 import { CATEGORY_ENTRIES, CURRENCY_LABELS, PAYMENT_TYPE_LABELS } from "@/constants";
 import { getTodayISO, hasErrors, validateExpenseForm } from "@/utils";
-import type { Expense } from "@/types";
 
 interface Props {
     open: boolean;
     onClose: () => void;
     onSubmit: (
-        data: Omit<Expense, "id" | "createdAt" | "updatedAt">,
+        data: CreateExpenseData,
     ) => Promise<void>;
     initial?: Partial<ExpenseFormData> & { paidInstallments?: number };
     title?: string;
@@ -109,7 +108,7 @@ export const ExpenseForm = ({
                 amount: Number(form.amount),
                 date: form.date,
                 installments,
-                paidInstallments: 0,
+                paidInstallments: initial?.paidInstallments ?? 0,
                 createdBy: "", // filled by DashboardPage via user
             });
             setForm(emptyForm);
