@@ -156,7 +156,7 @@ const ExpenseCard = ({
                 <Typography
                     variant="body1"
                     className={`font-bold! ${
-                        expense.paymentType === "credito" ? "text-gray-400 line-through" : ""
+                        expense.paymentType === "credito" ? "text-gray-400" : ""
                     }`}
                 >
                     {formatCurrency(expense.amount, expense.currency)}
@@ -672,15 +672,6 @@ export const ExpenseTable = ({
                                                 >
                                                     {expense.description}
                                                 </Typography>
-                                                {/* {expense.paymentType === "credito" && (
-                                                    <Chip
-                                                        label="NC"
-                                                        size="small"
-                                                        color="default"
-                                                        variant="filled"
-                                                        sx={{ height: 18, fontSize: 10 }}
-                                                    />
-                                                )} */}
                                                 {isLong && (
                                                     <IconButton
                                                         size="small"
@@ -757,7 +748,7 @@ export const ExpenseTable = ({
                                                 variant="body2"
                                                 className={`font-semibold! ${
                                                     expense.paymentType === "credito"
-                                                        ? "text-gray-400 line-through"
+                                                        ? "text-gray-400"
                                                         : ""
                                                 }`}
                                             >
