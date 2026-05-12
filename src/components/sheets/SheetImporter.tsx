@@ -16,6 +16,7 @@ import {
 import { useSheets } from "@/contexts/SheetsContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSpreadsheetMeta, setToken } from "@/services/googleSheets";
+import { is401Error } from "@/services/googleAuth";
 import { MONTH_NAMES } from "@/constants";
 
 interface Props {
@@ -59,21 +60,6 @@ export const SheetImporter = ({ open, onClose, prefillSpreadsheetId }: Props) =>
     logoutRef.current = logout;
 
     const spreadsheetId = useMemo(() => extractSpreadsheetId(rawInput), [rawInput]);
-
-    /**
-     * Same 401 detector used in SheetsContext.
-     */
-    const is401Error = (err: unknown): boolean => {
-        const e = err as Record<string, any> | null;
-        if (!e) return false;
-        if (e.status === 401) return true;
-        if (e.result?.error?.code === 401) return true;
-        if (
-            typeof e.message === "string" && e.message.includes("401") &&
-            e.message.includes("UNAUTHENTICATED")
-        ) return true;
-        return false;
-    };
 
     /**
      * Fetch spreadsheet metadata with automatic 401 → silent refresh → retry.

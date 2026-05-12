@@ -13,6 +13,7 @@ import { ExpenseTable } from "@/components/expenses/ExpenseTable";
 import { ConfirmDelete } from "@/components/expenses/ConfirmDelete";
 import InstallmentDetail from "@/components/expenses/InstallmentDetail";
 import { getSpreadsheetMeta, setToken } from "@/services/googleSheets";
+import { is401Error } from "@/services/googleAuth";
 
 export const DashboardPage = () => {
     const {
@@ -34,19 +35,6 @@ export const DashboardPage = () => {
     refreshTokenRef.current = refreshToken;
     const logoutRef = useRef(logout);
     logoutRef.current = logout;
-
-    /** 401 detector for GAPI / fetch errors. */
-    const is401Error = (err: unknown): boolean => {
-        const e = err as Record<string, any> | null;
-        if (!e) return false;
-        if (e.status === 401) return true;
-        if (e.result?.error?.code === 401) return true;
-        if (
-            typeof e.message === "string" && e.message.includes("401") &&
-            e.message.includes("UNAUTHENTICATED")
-        ) return true;
-        return false;
-    };
 
     /** Fetch spreadsheet metadata with automatic silent token refresh on 401. */
     const fetchMetaWithRefresh = useCallback(async (id: string) => {
@@ -98,7 +86,7 @@ export const DashboardPage = () => {
             <>
                 <Box className="flex flex-col items-center justify-center py-12 gap-6 text-center">
                     <Typography variant="h5" className="font-semibold! text-gray-700">
-                        Bienvenido al Control de Gastos
+                        Kaiju - Control de Gastos
                     </Typography>
                     <Typography variant="body1" className="text-gray-500 max-w-md">
                         Creá una nueva hoja de gastos mensual o importá una existente desde Google

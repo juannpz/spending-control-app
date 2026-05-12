@@ -10,6 +10,7 @@ import {
 import type { CreateExpenseData, Expense, MonthSheet } from "@/types";
 import { useAuth } from "./AuthContext";
 import * as sheetsService from "@/services/googleSheets";
+import { is401Error } from "@/services/googleAuth";
 import { formatMonthLabel, formatMonthSheetName } from "@/utils";
 
 // ---- localStorage persistence ----
@@ -47,21 +48,6 @@ const sortExpenses = (list: Expense[]): Expense[] =>
         if (dateCmp !== 0) return dateCmp;
         return a.id.localeCompare(b.id);
     });
-
-// ---- Token-refresh helpers ----
-
-/** Detect a 401 from either GAPI (result.error.code) or standard fetch (status). */
-const is401Error = (err: unknown): boolean => {
-    const e = err as Record<string, any> | null;
-    if (!e) return false;
-    if (e.status === 401) return true;
-    if (e.result?.error?.code === 401) return true;
-    if (
-        typeof e.message === "string" && e.message.includes("401") &&
-        e.message.includes("UNAUTHENTICATED")
-    ) return true;
-    return false;
-};
 
 interface SheetsContextType {
     currentSheet: MonthSheet | null;
