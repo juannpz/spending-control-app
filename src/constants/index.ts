@@ -1,4 +1,10 @@
-import type { Currency, ExpenseCategory, PaymentType } from "@/types";
+import type {
+    Currency,
+    ExpenseCategory,
+    IncomeCategory,
+    IncomeReceptionType,
+    PaymentType,
+} from "@/types";
 
 export const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
     supermercado: "Supermercado",
@@ -35,9 +41,41 @@ export const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
     otro: "Otro",
 };
 
+export const INCOME_CATEGORY_LABELS: Record<IncomeCategory, string> = {
+    salario: "Salario",
+    freelance: "Freelance",
+    ventas: "Ventas",
+    inversiones: "Inversiones",
+    alquiler_cobrado: "Alquiler cobrado",
+    reembolso: "Reembolso",
+    regalo_recibido: "Regalo recibido",
+    premio: "Premio",
+    devolucion: "Devolución",
+    prestamo: "Préstamo",
+    otro_ingreso: "Otro",
+};
+
+export const INCOME_RECEPTION_LABELS: Record<IncomeReceptionType, string> = {
+    transferencia: "Transferencia",
+    efectivo: "Efectivo",
+    qr: "QR",
+    debito: "Débito",
+    otro: "Otro",
+};
+
 /** Pre-sorted category entries for display in autocompletes (alphabetical by label) */
 export const CATEGORY_ENTRIES = (
     Object.entries(CATEGORY_LABELS) as [ExpenseCategory, string][]
+).sort((a, b) => a[1].localeCompare(b[1], "es"));
+
+/** Pre-sorted income category entries for display in autocompletes (alphabetical by label) */
+export const INCOME_CATEGORY_ENTRIES = (
+    Object.entries(INCOME_CATEGORY_LABELS) as [IncomeCategory, string][]
+).sort((a, b) => a[1].localeCompare(b[1], "es"));
+
+/** Pre-sorted income reception type entries */
+export const INCOME_RECEPTION_ENTRIES = (
+    Object.entries(INCOME_RECEPTION_LABELS) as [IncomeReceptionType, string][]
 ).sort((a, b) => a[1].localeCompare(b[1], "es"));
 
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
@@ -92,6 +130,7 @@ export const SHEET_HEADERS = [
     "Creado Por",
     "Creado",
     "Actualizado",
+    "Tipo Movimiento",
 ] as const;
 
 // Google API config — values must come from .env

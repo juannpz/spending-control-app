@@ -7,7 +7,7 @@ import {
     useRef,
     useState,
 } from "react";
-import type { CreateExpenseData, Expense, MonthSheet } from "@/types";
+import type { CreateExpenseData, CreateIncomeData, Expense, Income, MonthSheet } from "@/types";
 import { useAuth } from "./AuthContext";
 import * as sheetsService from "@/services/googleSheets";
 import { is401Error } from "@/services/googleAuth";
@@ -42,7 +42,7 @@ const clearPersistedSheet = (): void => {
     localStorage.removeItem(STORAGE_KEY);
 };
 
-const sortExpenses = (list: Expense[]): Expense[] =>
+const sortMovements = <T extends { date: string; id: string }>(list: T[]): T[] =>
     [...list].sort((a, b) => {
         const dateCmp = (b.date || "").localeCompare(a.date || "");
         if (dateCmp !== 0) return dateCmp;
@@ -63,6 +63,9 @@ interface SheetsContextType {
     addExpense: (data: CreateExpenseData) => Promise<Expense>;
     editExpense: (id: string, updates: Partial<CreateExpenseData>) => Promise<void>;
     removeExpense: (id: string) => Promise<void>;
+    addIncome: (data: CreateIncomeData) => Promise<Income>;
+    editIncome: (id: string, updates: Partial<CreateIncomeData>) => Promise<void>;
+    removeIncome: (id: string) => Promise<void>;
     markInstallmentPaid: (id: string, newPaidCount: number) => Promise<void>;
     clearError: () => void;
 }
@@ -101,7 +104,6 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
 
             const fresh = await refreshTokenRef.current();
             if (!fresh) {
-                // Cannot refresh → force logout to clean UI state
                 logoutRef.current();
                 throw new Error("Sesión expirada. Por favor iniciá sesión nuevamente.");
             }
@@ -121,7 +123,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
         setIsLoading(true);
         try {
             await withTokenRefresh(async (tok) => {
-                const expenses = await sheetsService.getExpenses(
+                const { expenses, income } = await sheetsService.getMovements(
                     tok,
                     persisted.spreadsheetId,
                     persisted.sheetName,
@@ -134,14 +136,13 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                     monthLabel: formatMonthLabel(persisted.year, persisted.month),
                     year: persisted.year,
                     month: persisted.month,
-                    expenses: sortExpenses(expenses),
+                    expenses: sortMovements(expenses),
+                    income: sortMovements(income),
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString(),
                 });
             });
         } catch {
-            // withTokenRefresh already called logout() if the token was unrecoverable.
-            // For other errors (network, permissions, …), clear the stale sheet ref.
             clearPersistedSheet();
             setCurrentSheet(null);
         } finally {
@@ -203,6 +204,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                         year,
                         month,
                         expenses: [],
+                        income: [],
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                     });
@@ -224,7 +226,11 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
             setError(null);
             try {
                 await withTokenRefresh(async (tok) => {
-                    const expenses = await sheetsService.getExpenses(tok, spreadsheetId, sheetName);
+                    const { expenses, income } = await sheetsService.getMovements(
+                        tok,
+                        spreadsheetId,
+                        sheetName,
+                    );
                     setCurrentSheet({
                         id: spreadsheetId,
                         spreadsheetId,
@@ -232,7 +238,8 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                         monthLabel: formatMonthLabel(year, month),
                         year,
                         month,
-                        expenses: sortExpenses(expenses),
+                        expenses: sortMovements(expenses),
+                        income: sortMovements(income),
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                     });
@@ -265,7 +272,7 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
 
                     setCurrentSheet((prev) =>
                         prev
-                            ? { ...prev, expenses: sortExpenses([...prev.expenses, expense]) }
+                            ? { ...prev, expenses: sortMovements([...prev.expenses, expense]) }
                             : prev
                     );
                     return expense;
@@ -339,6 +346,97 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
         [currentSheet, withTokenRefresh],
     );
 
+    // ── INCOME CRUD ────────────────────────────────────────────────
+
+    const addIncome = useCallback(
+        async (data: CreateIncomeData) => {
+            if (!currentSheet) throw new Error("No active sheet");
+            setError(null);
+            try {
+                return await withTokenRefresh(async (tok) => {
+                    const income = await sheetsService.addIncome(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        data,
+                    );
+
+                    setCurrentSheet((prev) =>
+                        prev ? { ...prev, income: sortMovements([...prev.income, income]) } : prev
+                    );
+                    return income;
+                });
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "Error al agregar ingreso";
+                setError(msg);
+                throw err;
+            }
+        },
+        [currentSheet, withTokenRefresh],
+    );
+
+    const editIncome = useCallback(
+        async (id: string, updates: Partial<CreateIncomeData>) => {
+            if (!currentSheet) throw new Error("No active sheet");
+            setError(null);
+            try {
+                await withTokenRefresh(async (tok) => {
+                    await sheetsService.updateMovement(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        id,
+                        updates,
+                    );
+                    setCurrentSheet((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            income: prev.income.map((inc) =>
+                                inc.id === id
+                                    ? { ...inc, ...updates, updatedAt: new Date().toISOString() }
+                                    : inc
+                            ),
+                        };
+                    });
+                });
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "Error al editar ingreso";
+                setError(msg);
+                throw err;
+            }
+        },
+        [currentSheet, withTokenRefresh],
+    );
+
+    const removeIncome = useCallback(
+        async (id: string) => {
+            if (!currentSheet) throw new Error("No active sheet");
+            setError(null);
+            try {
+                await withTokenRefresh(async (tok) => {
+                    await sheetsService.deleteMovement(
+                        tok,
+                        currentSheet.spreadsheetId,
+                        currentSheet.sheetName,
+                        id,
+                    );
+                    setCurrentSheet((prev) => {
+                        if (!prev) return prev;
+                        return { ...prev, income: prev.income.filter((inc) => inc.id !== id) };
+                    });
+                });
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : "Error al eliminar ingreso";
+                setError(msg);
+                throw err;
+            }
+        },
+        [currentSheet, withTokenRefresh],
+    );
+
+    // ── INSTALLMENTS ───────────────────────────────────────────────
+
     const markInstallmentPaid = useCallback(
         async (id: string, newPaidCount: number) => {
             if (!currentSheet) throw new Error("No active sheet");
@@ -388,6 +486,9 @@ export const SheetsProvider = ({ children }: { children: ReactNode }) => {
                 addExpense,
                 editExpense,
                 removeExpense,
+                addIncome,
+                editIncome,
+                removeIncome,
                 markInstallmentPaid,
                 clearError,
             }}

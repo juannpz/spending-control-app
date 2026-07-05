@@ -1,8 +1,17 @@
-import type { Currency, Expense, ExpenseCategory, GoogleSheetMeta, PaymentType } from "@/types";
+import type {
+    Currency,
+    Expense,
+    ExpenseCategory,
+    GoogleSheetMeta,
+    Income,
+    IncomeCategory,
+    IncomeReceptionType,
+    PaymentType,
+} from "@/types";
 import { DISCOVERY_DOC, SHEET_HEADERS } from "@/constants";
 
-const EXPENSE_RANGE = "A2:L";
-const HEADER_RANGE = "A1:L1";
+const EXPENSE_RANGE = "A2:M";
+const HEADER_RANGE = "A1:M1";
 
 let gapiReady = false;
 let gapiLoadPromise: Promise<GapiClient> | null = null;
@@ -53,34 +62,58 @@ export const setToken = (token: string): void => {
 // Utilities
 const generateId = (): string => `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 
-const rowToExpense = (row: string[]): Expense => ({
-    id: row[0] || generateId(),
-    date: row[1] || "",
-    description: row[2] || "",
-    category: (row[3] || "otro") as ExpenseCategory,
-    paymentType: (row[4] || "otro") as PaymentType,
-    currency: (row[5] || "ARS") as Currency,
-    amount: Number(row[6]) || 0,
-    installments: Number(row[7]) || 1,
-    paidInstallments: Number(row[8]) || 0,
-    createdBy: row[9] || "Desconocido",
-    createdAt: row[10] || new Date().toISOString(),
-    updatedAt: row[11] || new Date().toISOString(),
-});
+const rowToMovement = (row: string[]): Expense | Income => {
+    const movementType = (row[12] || "expense") as "expense" | "income";
 
-const expenseToRow = (e: Expense): string[] => [
-    e.id,
-    e.date,
-    e.description,
-    e.category,
-    e.paymentType,
-    e.currency,
-    e.amount.toString(),
-    e.installments.toString(),
-    e.paidInstallments.toString(),
-    e.createdBy,
-    e.createdAt,
-    e.updatedAt,
+    if (movementType === "income") {
+        return {
+            id: row[0] || generateId(),
+            movementType: "income",
+            date: row[1] || "",
+            description: row[2] || "",
+            category: (row[3] || "otro_ingreso") as IncomeCategory,
+            paymentType: (row[4] || "transferencia") as IncomeReceptionType,
+            currency: (row[5] || "ARS") as Currency,
+            amount: Number(row[6]) || 0,
+            installments: 1,
+            paidInstallments: 0,
+            createdBy: row[9] || "Desconocido",
+            createdAt: row[10] || new Date().toISOString(),
+            updatedAt: row[11] || new Date().toISOString(),
+        };
+    }
+
+    return {
+        id: row[0] || generateId(),
+        movementType: "expense",
+        date: row[1] || "",
+        description: row[2] || "",
+        category: (row[3] || "otro") as ExpenseCategory,
+        paymentType: (row[4] || "otro") as PaymentType,
+        currency: (row[5] || "ARS") as Currency,
+        amount: Number(row[6]) || 0,
+        installments: Number(row[7]) || 1,
+        paidInstallments: Number(row[8]) || 0,
+        createdBy: row[9] || "Desconocido",
+        createdAt: row[10] || new Date().toISOString(),
+        updatedAt: row[11] || new Date().toISOString(),
+    };
+};
+
+const movementToRow = (m: Expense | Income): string[] => [
+    m.id,
+    m.date,
+    m.description,
+    m.category,
+    m.paymentType,
+    m.currency,
+    m.amount.toString(),
+    m.installments.toString(),
+    m.paidInstallments.toString(),
+    m.createdBy,
+    m.createdAt,
+    m.updatedAt,
+    m.movementType,
 ];
 
 // ---- SPREADSHEET MANAGEMENT ----
@@ -164,13 +197,13 @@ export const getSpreadsheetMeta = async (
     };
 };
 
-// ---- EXPENSE CRUD ----
+// ---- MOVEMENT CRUD ----
 
-export const getExpenses = async (
+export const getMovements = async (
     token: string,
     spreadsheetId: string,
     sheetName: string,
-): Promise<Expense[]> => {
+): Promise<{ expenses: Expense[]; income: Income[] }> => {
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
@@ -181,38 +214,119 @@ export const getExpenses = async (
         });
 
         const rows = (res.result.values as string[][]) ?? [];
-        return rows
+        const movements = rows
             .filter((row) => row.some((cell) => cell?.trim()))
-            .map(rowToExpense);
+            .map(rowToMovement);
+
+        const expenses = movements.filter((m) => m.movementType === "expense") as Expense[];
+        const income = movements.filter((m) => m.movementType === "income") as Income[];
+
+        return { expenses, income };
     } catch (err) {
-        // Propagate auth errors so callers can handle token refresh
         throw err;
     }
 };
 
+/** Backward-compatible: returns only expenses */
+export const getExpenses = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+): Promise<Expense[]> => {
+    const { expenses } = await getMovements(token, spreadsheetId, sheetName);
+    return expenses;
+};
+
+export const addMovement = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+    data:
+        | Omit<Expense, "id" | "createdAt" | "updatedAt">
+        | Omit<Income, "id" | "createdAt" | "updatedAt">,
+): Promise<Expense | Income> => {
+    const gapi = await loadGapiClient();
+    gapi.setToken({ access_token: token });
+
+    const now = new Date().toISOString();
+    const movement: Expense | Income = {
+        ...data,
+        id: generateId(),
+        createdAt: now,
+        updatedAt: now,
+        // Ensure these fields are always set for income
+        installments: data.movementType === "income" ? 1 : (data as Expense).installments,
+        paidInstallments: data.movementType === "income" ? 0 : (data as Expense).paidInstallments,
+    } as Expense | Income;
+
+    await gapi.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${sheetName}'!A:M`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        resource: { values: [movementToRow(movement)] },
+    });
+
+    return movement;
+};
+
+/** Backward-compatible: addExpense using addMovement */
 export const addExpense = async (
     token: string,
     spreadsheetId: string,
     sheetName: string,
     data: Omit<Expense, "id" | "createdAt" | "updatedAt">,
 ): Promise<Expense> => {
+    const result = await addMovement(token, spreadsheetId, sheetName, data);
+    return result as Expense;
+};
+
+/** Add a new income record */
+export const addIncome = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+    data: Omit<Income, "id" | "createdAt" | "updatedAt">,
+): Promise<Income> => {
+    const result = await addMovement(token, spreadsheetId, sheetName, data);
+    return result as Income;
+};
+
+export const updateMovement = async (
+    token: string,
+    spreadsheetId: string,
+    sheetName: string,
+    id: string,
+    updates: Partial<Omit<Expense | Income, "id" | "createdAt">>,
+): Promise<void> => {
+    const row = await findMovementRow(token, spreadsheetId, sheetName, id);
+    if (row === -1) throw new Error(`Movement ${id} not found`);
+
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
-    const now = new Date().toISOString();
-    const expense: Expense = { ...data, id: generateId(), createdAt: now, updatedAt: now };
-
-    await gapi.sheets.spreadsheets.values.append({
+    const res = await gapi.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `'${sheetName}'!A:L`,
-        valueInputOption: "RAW",
-        insertDataOption: "INSERT_ROWS",
-        resource: { values: [expenseToRow(expense)] },
+        range: `'${sheetName}'!A${row}:M${row}`,
     });
+    const rowData = (res.result.values as string[][])?.[0] ?? [];
+    const current = rowToMovement(rowData);
 
-    return expense;
+    const updated: Expense | Income = {
+        ...current,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+    } as Expense | Income;
+
+    await gapi.sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${sheetName}'!A${row}:M${row}`,
+        valueInputOption: "RAW",
+        resource: { values: [movementToRow(updated)] },
+    });
 };
 
+/** Backward-compatible: updateExpense using updateMovement */
 export const updateExpense = async (
     token: string,
     spreadsheetId: string,
@@ -220,42 +334,15 @@ export const updateExpense = async (
     id: string,
     updates: Partial<Omit<Expense, "id" | "createdAt">>,
 ): Promise<void> => {
-    // Find the real sheet row using the ID column directly (not filtered array index)
-    const row = await findExpenseRow(token, spreadsheetId, sheetName, id);
-    if (row === -1) throw new Error(`Expense ${id} not found`);
-
-    // Fetch current data from that exact row to build the updated object
-    const gapi = await loadGapiClient();
-    gapi.setToken({ access_token: token });
-
-    const res = await gapi.sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `'${sheetName}'!A${row}:L${row}`,
-    });
-    const rowData = (res.result.values as string[][])?.[0] ?? [];
-    const current = rowToExpense(rowData);
-
-    const updated: Expense = {
-        ...current,
-        ...updates,
-        updatedAt: new Date().toISOString(),
-    };
-
-    await gapi.sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'${sheetName}'!A${row}:L${row}`,
-        valueInputOption: "RAW",
-        resource: { values: [expenseToRow(updated)] },
-    });
+    return updateMovement(token, spreadsheetId, sheetName, id, updates);
 };
 
-export const findExpenseRow = async (
+export const findMovementRow = async (
     token: string,
     spreadsheetId: string,
     sheetName: string,
     id: string,
 ): Promise<number> => {
-    // Returns the 1-based sheet row number for the given expense ID
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
@@ -266,32 +353,37 @@ export const findExpenseRow = async (
         });
         const rows = (res.result.values as string[][]) ?? [];
         const rowIdx = rows.findIndex((row) => row[0] === id);
-        return rowIdx >= 0 ? rowIdx + 2 : -1; // +2 because header is row 1, array is 0-based
+        return rowIdx >= 0 ? rowIdx + 2 : -1;
     } catch {
         return -1;
     }
 };
 
-export const deleteExpense = async (
+/** Backward-compatible alias */
+export const findExpenseRow = findMovementRow;
+
+export const deleteMovement = async (
     token: string,
     spreadsheetId: string,
     sheetName: string,
     id: string,
 ): Promise<void> => {
-    const row = await findExpenseRow(token, spreadsheetId, sheetName, id);
-    if (row === -1) throw new Error(`Expense ${id} not found`);
+    const row = await findMovementRow(token, spreadsheetId, sheetName, id);
+    if (row === -1) throw new Error(`Movement ${id} not found`);
 
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
-    // Clear the row contents (updateExpense now uses real row numbers, so gaps are safe)
     await gapi.sheets.spreadsheets.values.clear({
         spreadsheetId,
-        range: `'${sheetName}'!A${row}:L${row}`,
+        range: `'${sheetName}'!A${row}:M${row}`,
     });
 };
 
-// ---- CROSS-SHEET INSTALLMENT HELPERS ----
+/** Backward-compatible alias */
+export const deleteExpense = deleteMovement;
+
+// ---- CROSS-SHEET HELPERS ----
 
 /** List all sheet tab names in a spreadsheet, sorted alphabetically. */
 export const getSheetNames = async (
@@ -318,23 +410,26 @@ export const sheetExists = async (
     return names.includes(sheetName);
 };
 
-/** Append multiple expense rows to a sheet in one API call. */
-export const batchAddExpenses = async (
+/** Append multiple movement rows to a sheet in one API call. */
+export const batchAddMovements = async (
     token: string,
     spreadsheetId: string,
     sheetName: string,
-    expenses: Expense[],
+    movements: (Expense | Income)[],
 ): Promise<void> => {
-    if (expenses.length === 0) return;
+    if (movements.length === 0) return;
 
     const gapi = await loadGapiClient();
     gapi.setToken({ access_token: token });
 
     await gapi.sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `'${sheetName}'!A:L`,
+        range: `'${sheetName}'!A:M`,
         valueInputOption: "RAW",
         insertDataOption: "INSERT_ROWS",
-        resource: { values: expenses.map(expenseToRow) },
+        resource: { values: movements.map(movementToRow) },
     });
 };
+
+/** Backward-compatible alias */
+export const batchAddExpenses = batchAddMovements;

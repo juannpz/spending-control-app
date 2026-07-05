@@ -6,6 +6,8 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { IncomePage } from "@/pages/IncomePage";
+import { MetricsPage } from "@/pages/MetricsPage";
 
 const theme = createTheme({
     palette: {
@@ -48,6 +50,15 @@ const theme = createTheme({
                 },
             },
         },
+        MuiBottomNavigationAction: {
+            styleOverrides: {
+                root: {
+                    "&.Mui-selected": {
+                        color: "#1a73e8",
+                    },
+                },
+            },
+        },
     },
 });
 
@@ -68,6 +79,8 @@ const App = () => (
                         }
                     >
                         <Route path="/" element={<DashboardPage />} />
+                        <Route path="/income" element={<IncomePage />} />
+                        <Route path="/metrics" element={<MetricsPage />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

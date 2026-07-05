@@ -13,47 +13,42 @@ import {
     Select,
     type SelectChangeEvent,
     TextField,
-    Typography,
 } from "@mui/material";
-import type { CreateExpenseData, Expense, ExpenseCategory, ExpenseFormData } from "@/types";
-import { CATEGORY_ENTRIES, CURRENCY_LABELS, PAYMENT_TYPE_LABELS } from "@/constants";
-import { getTodayISO, hasErrors, validateExpenseForm } from "@/utils";
+import type { CreateIncomeData, Income, IncomeCategory, IncomeFormData } from "@/types";
+import { CURRENCY_LABELS, INCOME_CATEGORY_ENTRIES, INCOME_RECEPTION_ENTRIES } from "@/constants";
+import { getTodayISO, hasErrors, validateIncomeForm } from "@/utils";
 
 interface Props {
     open: boolean;
     onClose: () => void;
-    onSubmit: (
-        data: CreateExpenseData,
-    ) => Promise<void>;
-    initial?: Partial<ExpenseFormData> & { paidInstallments?: number };
+    onSubmit: (data: CreateIncomeData) => Promise<void>;
+    initial?: Partial<IncomeFormData>;
     title?: string;
 }
 
-const emptyForm: ExpenseFormData = {
+const emptyForm: IncomeFormData = {
     description: "",
     category: "",
     paymentType: "",
     currency: "ARS",
     amount: "",
     date: getTodayISO(),
-    installments: "",
 };
 
-export const ExpenseForm = ({
+export const IncomeForm = ({
     open,
     onClose,
     onSubmit,
     initial,
-    title = "Nuevo Gasto",
+    title = "Nuevo Ingreso",
 }: Props) => {
-    const [form, setForm] = useState<ExpenseFormData>(() => ({
+    const [form, setForm] = useState<IncomeFormData>(() => ({
         ...emptyForm,
         ...initial,
     }));
-    const [errors, setErrors] = useState<ReturnType<typeof validateExpenseForm>>({});
+    const [errors, setErrors] = useState<ReturnType<typeof validateIncomeForm>>({});
     const [submitting, setSubmitting] = useState(false);
 
-    // Reset form only when the dialog opens (not on every initial change)
     const initialRef = useRef(initial);
     initialRef.current = initial;
     useEffect(() => {
@@ -62,14 +57,10 @@ export const ExpenseForm = ({
             setForm({
                 ...emptyForm,
                 ...init,
-                installments: init?.installments ?? "",
             });
             setErrors({});
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
-
-    const isCredit = form.paymentType === "credito";
 
     const handleChange = (
         e:
@@ -77,15 +68,7 @@ export const ExpenseForm = ({
             | SelectChangeEvent,
     ) => {
         const { name, value } = e.target;
-        setForm((prev) => {
-            const next = { ...prev, [name]: value };
-            // If switching away from credito, reset installments
-            if (name === "paymentType" && value !== "credito") {
-                next.installments = "";
-            }
-            return next;
-        });
-        // Clear individual error
+        setForm((prev) => ({ ...prev, [name]: value }));
         if (name in errors) {
             setErrors((prev) => ({ ...prev, [name]: undefined }));
         }
@@ -93,24 +76,23 @@ export const ExpenseForm = ({
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        const validationErrors = validateExpenseForm(form);
+        const validationErrors = validateIncomeForm(form);
         setErrors(validationErrors);
         if (hasErrors(validationErrors)) return;
 
         setSubmitting(true);
         try {
-            const installments = isCredit ? Number(form.installments) : 1;
             await onSubmit({
-                movementType: "expense",
+                movementType: "income",
                 description: form.description.trim(),
-                category: form.category as Expense["category"],
-                paymentType: form.paymentType as Expense["paymentType"],
+                category: form.category as Income["category"],
+                paymentType: form.paymentType as Income["paymentType"],
                 currency: form.currency,
                 amount: Number(form.amount),
                 date: form.date,
-                installments,
-                paidInstallments: initial?.paidInstallments ?? 0,
-                createdBy: "", // filled by DashboardPage via user
+                installments: 1,
+                paidInstallments: 0,
+                createdBy: "",
             });
             setForm(emptyForm);
             setErrors({});
@@ -155,18 +137,19 @@ export const ExpenseForm = ({
                         fullWidth
                         error={!!errors.description}
                         helperText={errors.description}
-                        placeholder="Ej: Compra supermercado"
+                        placeholder="Ej: Salario mensual"
                     />
 
                     {/* Category — searchable Autocomplete */}
                     <FormControl fullWidth error={!!errors.category}>
                         <Autocomplete
-                            options={CATEGORY_ENTRIES}
-                            value={CATEGORY_ENTRIES.find(([k]) => k === form.category) ?? undefined}
+                            options={INCOME_CATEGORY_ENTRIES}
+                            value={INCOME_CATEGORY_ENTRIES.find(([k]) => k === form.category) ??
+                                undefined}
                             onChange={(_e, newValue) => {
                                 setForm((prev) => ({
                                     ...prev,
-                                    category: (newValue?.[0] ?? "") as ExpenseCategory,
+                                    category: (newValue?.[0] ?? "") as IncomeCategory,
                                 }));
                                 setErrors((prev) => ({ ...prev, category: undefined }));
                             }}
@@ -188,23 +171,21 @@ export const ExpenseForm = ({
                         {errors.category && <FormHelperText>{errors.category}</FormHelperText>}
                     </FormControl>
 
-                    {/* Payment Type */}
+                    {/* Reception Type */}
                     <FormControl fullWidth error={!!errors.paymentType}>
-                        <InputLabel id="pay-label">Tipo de Pago</InputLabel>
+                        <InputLabel id="reception-label">Medio de Recepción</InputLabel>
                         <Select
-                            labelId="pay-label"
+                            labelId="reception-label"
                             name="paymentType"
                             value={form.paymentType}
-                            label="Tipo de Pago"
+                            label="Medio de Recepción"
                             onChange={handleChange}
                         >
-                            {(Object.entries(PAYMENT_TYPE_LABELS) as [string, string][]).map(
-                                ([key, label]) => (
-                                    <MenuItem key={key} value={key}>
-                                        {label}
-                                    </MenuItem>
-                                ),
-                            )}
+                            {INCOME_RECEPTION_ENTRIES.map(([key, label]) => (
+                                <MenuItem key={key} value={key}>
+                                    {label}
+                                </MenuItem>
+                            ))}
                         </Select>
                         {errors.paymentType && <FormHelperText>{errors.paymentType}
                         </FormHelperText>}
@@ -246,39 +227,6 @@ export const ExpenseForm = ({
                             }}
                         />
                     </div>
-
-                    {/* Installments — only for crédito */}
-                    {isCredit && (
-                        <div className="bg-indigo-50 rounded-lg p-3 flex flex-col gap-1">
-                            <Typography variant="body2" className="font-semibold text-indigo-800">
-                                Configuración de cuotas
-                            </Typography>
-                            <TextField
-                                label="Cantidad de cuotas"
-                                name="installments"
-                                type="number"
-                                value={form.installments}
-                                onChange={handleChange}
-                                fullWidth
-                                error={!!errors.installments}
-                                helperText={errors.installments ||
-                                    "Total a pagar en cada cuota: " +
-                                        (form.amount && Number(form.amount) > 0 && form.installments
-                                            ? `$${
-                                                (
-                                                    Number(form.amount) / Number(form.installments)
-                                                ).toLocaleString("es-AR", {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                })
-                                            }`
-                                            : "-")}
-                                slotProps={{
-                                    htmlInput: { min: 1, max: 48, step: 1, inputMode: "numeric" },
-                                }}
-                            />
-                        </div>
-                    )}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={handleClose} disabled={submitting}>
