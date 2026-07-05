@@ -1,23 +1,18 @@
-// Minimal service worker to enable PWA install prompt
-const CACHE_NAME = "kaiju-v1";
+const APP_VERSION = "__APP_VERSION__";
+const CACHE_NAME = "kaiju-v" + APP_VERSION;
 
-const STATIC_ASSETS = [
+const PRECACHE = [
     "/",
     "/index.html",
     "/manifest.json",
-    "/logo8-2.png",
-    "/logo8-1.png",
 ];
 
 self.addEventListener("install", (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(STATIC_ASSETS).catch(() => {
-                // Don't fail installation if some assets can't be cached
-            });
+            return cache.addAll(PRECACHE).catch(() => {});
         }),
     );
-    // Activate immediately — don't wait for old tabs to close
     self.skipWaiting();
 });
 
@@ -29,32 +24,43 @@ self.addEventListener("activate", (event) => {
             );
         }),
     );
-    // Take control of all pages immediately
     self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
-    // Network-first strategy: try network, fallback to cache
+    if (event.request.method !== "GET") return;
+
+    // Navigations: always bypass browser HTTP cache to get fresh index.html
+    if (event.request.mode === "navigate") {
+        event.respondWith(
+            fetch(event.request, { cache: "reload" })
+                .then((response) => {
+                    const cloned = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+                    return response;
+                })
+                .catch(() => {
+                    return caches.match(event.request).then(
+                        (cached) => cached || caches.match("/index.html"),
+                    );
+                }),
+        );
+        return;
+    }
+
+    // Other requests: network-first with runtime caching
     event.respondWith(
         fetch(event.request)
             .then((response) => {
-                // Cache successful GET responses
-                if (event.request.method === "GET" && response.status === 200) {
+                if (response.status === 200) {
                     const cloned = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(event.request, cloned);
-                    });
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
                 }
                 return response;
             })
             .catch(() => {
-                // Offline fallback: try cache
                 return caches.match(event.request).then((cached) => {
                     if (cached) return cached;
-                    // If it's a page navigation, return index.html
-                    if (event.request.mode === "navigate") {
-                        return caches.match("/index.html");
-                    }
                     return new Response("Offline", { status: 503 });
                 });
             }),
